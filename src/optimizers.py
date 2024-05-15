@@ -48,10 +48,8 @@ class SGD(Optimizer):
             p_mean (float): Mean of prices.
         """
         p_mean = self.p
-        for _ in range(self.N):
-            # pick random supplier or client to update prices for
+        for t in range(self.N):
             index = np.random.randint(1, self.S + self.D)
-            # update price - clip it so that each price is non-negative
             self.p = self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(
                 self.p, index
             ).clip(min=0)
@@ -75,7 +73,6 @@ class AdaGrad(Optimizer):
             index = np.random.randint(1, self.S + self.D)
             g = self.oracle.compute_gradient(self.p, index)
             H += g**2
-            # update price - clip it so that each price is non-negative
             self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
             p_mean += self.p
         return p_mean / self.N
@@ -84,7 +81,7 @@ class AdaGrad(Optimizer):
 class Momentum(Optimizer):
     """Momentum."""
 
-    def __init__(self, oracle: object, N: int, C: float, gamma=0.9):
+    def __init__(self, oracle: object, N: int, C: float, gamma: float = 0.9):
         """
         Parameters:
         gamma (float): Momentum parameter.
@@ -105,7 +102,6 @@ class Momentum(Optimizer):
             index = np.random.randint(1, self.S + self.D)
             g = self.oracle.compute_gradient(self.p, index)
             v = self.gamma * v + self.C * g
-            # update price - clip it so that each price is non-negative
             self.p = (self.p - v).clip(min=0)
             p_mean += self.p
         return p_mean / self.N
@@ -135,7 +131,6 @@ class RMSprop(Optimizer):
             index = np.random.randint(1, self.S + self.D)
             g = self.oracle.compute_gradient(self.p, index)
             H = self.decay_rate * H + (1 - self.decay_rate) * g**2
-            # update price - clip it so that each price is non-negative
             self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
             p_mean += self.p
         return p_mean / self.N
@@ -144,7 +139,9 @@ class RMSprop(Optimizer):
 class ADAM:
     """Adaptive Moment Estimation."""
 
-    def __init__(self, oracle: object, N: int, C: float, beta1: float, beta2: float):
+    def __init__(
+        self, oracle: object, N: int, C: float, beta1: float = 0.9, beta2: float = 0.999
+    ):
         """
         Parameters:
         beta1 (float): Decay rate of the first moment.
@@ -169,14 +166,13 @@ class ADAM:
         p_mean = self.p
         m = np.zeros(self.S + self.D)
         v = np.zeros(self.S + self.D)
-        for _ in range(self.N):
+        for t in range(self.N):
             index = np.random.randint(1, self.S + self.D)
             g = self.oracle.compute_gradient(self.p, index)
             m = self.beta1 * m + (1 - self.beta1) * g
             v = self.beta2 * v + (1 - self.beta2) * g**2
             m_hat = m / (1 - self.beta1 ** (t + 1))
             v_hat = v / (1 - self.beta2 ** (t + 1))
-            # update price - clip it so that each price is non-negative
             self.p = (self.p - self.C / np.sqrt(v_hat + 1e-7) * m_hat).clip(min=0)
             p_mean += self.p
         return p_mean / self.N
