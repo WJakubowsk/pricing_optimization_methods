@@ -1,104 +1,182 @@
+from abc import ABC, abstractmethod
+from typing import override
+
 import numpy as np
 
 
-class SGD:
-    """
-    Stochastic Gradient Descent algorithm for optimizing convex functions.
-    """
+class Optimizer(ABC):
+    """Abstract base class for optimizers."""
 
-    def __init__(self, lr=0.01):
-        self.lr = lr
+    def __init__(self, oracle: object, N: int, C: float):
+        """
+        Parameters:
+        oracle: Oracle object to compute gradients.
+        N (int): Number of iterations.
+        C (float): Learning rate, controlling the iteration step.
+        """
+        self.oracle = oracle
+        self.N = N
+        self.C = C
+        self.p = oracle.initialize_prices()
+        self.S = oracle.S
+        self.D = oracle.D
 
-    def update(self, params, grads):
-        for i in range(len(params)):
-            params[i] -= self.lr * grads[i]
+    @abstractmethod
+    def update(self):
+        """
+        Updates prices of products. This method should be overridden by subclasses.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        pass
+
+    def get_prices(self):
+        """
+        Returns optimized prices of products.
+        """
+        return self.p
 
 
-class Momentum:
-    """
-    Momentum SGD algorithm for optimizing convex functions.
-    """
+class SGD(Optimizer):
+    """Stochastic Gradient Descent."""
 
-    def __init__(self, lr=0.01, momentum=0.9):
-        self.lr = lr
-        self.momentum = momentum
-        self.v = None
+    @override
+    def update(self):
+        """
+        Updates prices of products using SGD.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        p_mean = self.p
+        for _ in range(self.N):
+            # pick random supplier or client to update prices for
+            index = np.random.randint(1, self.S + self.D)
+            # update price - clip it so that each price is non-negative
+            self.p = self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(
+                self.p, index
+            ).clip(min=0)
+            p_mean += self.p
+        return p_mean / self.N
 
-    def update(self, params, grads):
-        if self.v is None:
-            self.v = [np.zeros_like(param) for param in params]
 
-        for i in range(len(params)):
-            self.v[i] = self.momentum * self.v[i] - self.lr * grads[i]
-            params[i] += self.v[i]
+class AdaGrad(Optimizer):
+    """Adaptive Gradient."""
+
+    @override
+    def update(self):
+        """
+        Updates prices of products using AdaGrad.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        p_mean = self.p
+        H = np.zeros(self.S + self.D)
+        for _ in range(self.N):
+            index = np.random.randint(1, self.S + self.D)
+            g = self.oracle.compute_gradient(self.p, index)
+            H += g**2
+            # update price - clip it so that each price is non-negative
+            self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
+            p_mean += self.p
+        return p_mean / self.N
 
 
-class RMSprop:
-    """
-    RMSprop algorithm for optimizing convex functions.
-    """
+class Momentum(Optimizer):
+    """Momentum."""
 
-    def __init__(self, lr=0.01, decay_rate=0.99):
-        self.lr = lr
+    def __init__(self, oracle: object, N: int, C: float, gamma=0.9):
+        """
+        Parameters:
+        gamma (float): Momentum parameter.
+        """
+        super().__init__(oracle, N, C)
+        self.gamma = gamma
+
+    @override
+    def update(self):
+        """
+        Updates prices of products using Momentum.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        p_mean = self.p
+        v = np.zeros(self.S + self.D)
+        for _ in range(self.N):
+            index = np.random.randint(1, self.S + self.D)
+            g = self.oracle.compute_gradient(self.p, index)
+            v = self.gamma * v + self.C * g
+            # update price - clip it so that each price is non-negative
+            self.p = (self.p - v).clip(min=0)
+            p_mean += self.p
+        return p_mean / self.N
+
+
+class RMSprop(Optimizer):
+    """Root Mean Square Propagation."""
+
+    def __init__(self, oracle: object, N: int, C: float, decay_rate: float = 0.9):
+        """
+        Parameters:
+        decay_rate (float): Decay rate parameter for RMSprop.
+        """
+        super().__init__(oracle, N, C)
         self.decay_rate = decay_rate
-        self.h = None
 
-    def update(self, params, grads):
-        if self.h is None:
-            self.h = [np.zeros_like(param) for param in params]
+    @override
+    def update(self):
+        """
+        Updates prices of products using RMSprop.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        p_mean = self.p
+        H = np.zeros(self.S + self.D)
+        for _ in range(self.N):
+            index = np.random.randint(1, self.S + self.D)
+            g = self.oracle.compute_gradient(self.p, index)
+            H = self.decay_rate * H + (1 - self.decay_rate) * g**2
+            # update price - clip it so that each price is non-negative
+            self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
+            p_mean += self.p
+        return p_mean / self.N
 
-        for i in range(len(params)):
-            self.h[i] = (
-                self.decay_rate * self.h[i]
-                + (1 - self.decay_rate) * grads[i] * grads[i]
-            )
-            params[i] -= self.lr * grads[i] / (np.sqrt(self.h[i]) + 1e-7)
 
+class ADAM:
+    """Adaptive Moment Estimation."""
 
-class Adam:
-    """
-    Adam algorithm for optimizing convex functions.
-    """
-
-    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999):
-        self.lr = lr
+    def __init__(self, oracle: object, N: int, C: float, beta1: float, beta2: float):
+        """
+        Parameters:
+        beta1 (float): Decay rate of the first moment.
+        beta2 (float): Decay rate of the second moment.
+        """
+        self.oracle = oracle
+        self.N = N
+        self.C = C
+        self.p = oracle.initialize_prices()
+        self.S = oracle.S
+        self.D = oracle.D
         self.beta1 = beta1
         self.beta2 = beta2
-        self.iter = 0
-        self.m = None
-        self.v = None
 
-    def update(self, params, grads):
-        if self.m is None:
-            self.m = [np.zeros_like(param) for param in params]
-            self.v = [np.zeros_like(param) for param in params]
-
-        self.iter += 1
-        lr_t = (
-            self.lr
-            * np.sqrt(1.0 - self.beta2**self.iter)
-            / (1.0 - self.beta1**self.iter)
-        )
-
-        for i in range(len(params)):
-            self.m[i] += (1 - self.beta1) * (grads[i] - self.m[i])
-            self.v[i] += (1 - self.beta2) * (grads[i] ** 2 - self.v[i])
-            params[i] -= lr_t * self.m[i] / (np.sqrt(self.v[i]) + 1e-7)
-
-
-class AdaGrad:
-    """
-    AdaGrad algorithm for optimizing convex functions.
-    """
-
-    def __init__(self, lr=0.01):
-        self.lr = lr
-        self.h = None
-
-    def update(self, params, grads):
-        if self.h is None:
-            self.h = [np.zeros_like(param) for param in params]
-
-        for i in range(len(params)):
-            self.h[i] += grads[i] * grads[i]
-            params[i] -= self.lr * grads[i] / (np.sqrt(self.h[i]) + 1e-7)
+    @override
+    def update(self):
+        """
+        Updates prices of products using ADAM.
+        Returns:
+            p_mean (float): Mean of prices.
+        """
+        p_mean = self.p
+        m = np.zeros(self.S + self.D)
+        v = np.zeros(self.S + self.D)
+        for _ in range(self.N):
+            index = np.random.randint(1, self.S + self.D)
+            g = self.oracle.compute_gradient(self.p, index)
+            m = self.beta1 * m + (1 - self.beta1) * g
+            v = self.beta2 * v + (1 - self.beta2) * g**2
+            m_hat = m / (1 - self.beta1 ** (t + 1))
+            v_hat = v / (1 - self.beta2 ** (t + 1))
+            # update price - clip it so that each price is non-negative
+            self.p = (self.p - self.C / np.sqrt(v_hat + 1e-7) * m_hat).clip(min=0)
+            p_mean += self.p
+        return p_mean / self.N
