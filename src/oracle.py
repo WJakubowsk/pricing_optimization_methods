@@ -18,13 +18,13 @@ class Oracle:
         for i in range(self.n):
             segment = i % self.m
             self.G[segment].append(i)
-        self.final_price = self.epku()
+        self.final_price = self.pricing_scheme()
+        self.compute_y()
 
-    def epku2(self, p, h, N):
+    def pricing_scheme_step(self, p, h, N):
         sum_y = np.sum(
             (p + 2 * self.gamma * self.y_dash) / (2 + 2 * self.gamma), axis=0
         )
-        # sum_x = np.sum([N[i] * self.compute_probabilities() for i in range(self.d)], axis=1)
 
         sum_x = self.compute_probabilities()
         for i in range(self.d):
@@ -33,22 +33,25 @@ class Oracle:
         p_new = p - h * (sum_y - sum_x)
         return np.maximum(p_new, 0)
 
-    def epku(self):
+    def pricing_scheme(self):
         p = self.prices
         N = np.random.randint(1, 10, self.d)  # Random N values for consumers
         beta = np.random.uniform(0.1, 1, self.d)  # Random beta values for consumers
         sum_N_over_beta = np.sum(N / beta)
         sum_1_over_Gamma = np.sum([1 / self.gamma for _ in range(self.s)])
-        h = 1 / (sum_N_over_beta + sum_1_over_Gamma)
+        temp = 1 / (sum_N_over_beta + sum_1_over_Gamma)
+        h = temp * np.random.uniform(-1, 1)
 
         prices_over_time = [p]
 
         t = 0
         while True:
             prices_over_time.append(None)
-            prices_over_time[t + 1] = self.epku2(prices_over_time[t], h, N)
+            prices_over_time[t + 1] = self.pricing_scheme_step(
+                prices_over_time[t], h, N
+            )
             t += 1
-            if np.linalg.norm(prices_over_time[t] - prices_over_time[t - 1]) < 1e-6:
+            if np.linalg.norm(prices_over_time[t] - prices_over_time[t - 1]) < 1e-2:
                 break
         return np.array(prices_over_time)[len(prices_over_time) - 1]
 
@@ -98,22 +101,6 @@ class Oracle:
 
     def compute_probabilities(self):
         self.probabilities = np.zeros((self.n, self.d))
-        # for d in range(self.d):
-        #     for j, group in enumerate(self.G):
-        #         for product_idx in group:
-        #             expp = np.exp((self.customers[product_idx, d] - self.prices[product_idx])/self.mu[j])
-        #             expp2 = 0
-        #             for k in group:
-        #                 expp2 += np.exp((self.customers[k, d] - self.prices[k])/self.mu[j])
-        #             expp2 = expp2 ** (self.mu[j] - 1)
-        #             expp3 = 0
-        #             for h, group2 in enumerate(self.G):
-        #                 for k in group2:
-        #                     expp3 += np.exp((self.customers[k, d] - self.prices[k])/self.mu[h])
-        #                 expp3 = expp3 ** self.mu[h]
-        #     self.probabilities[product_idx, d] = expp * expp2 / expp3
-
-        # return self.probabilities
         denominator = np.zeros(self.d)
         for i in range(self.d):
             outer_sum = 0
@@ -126,7 +113,6 @@ class Oracle:
                 outer_sum += inner_sum ** self.mu[h]
             denominator[i] = outer_sum
 
-        # numerator = np.zeros((self.n, self.d))
         for i in range(self.n):
             for j in range(self.d):
                 sum = 0
@@ -134,12 +120,10 @@ class Oracle:
                     sum += np.exp(
                         (self.customers[k, j] - self.prices[k]) / self.mu[i % self.m]
                     )
-                # numerator[i, j] = np.exp((self.customers[i, j] - self.prices[i]) / self.mu[i % self.m]) * sum ** self.mu[i % self.m]
                 numerator = np.exp(
                     (self.customers[i, j] - self.prices[i]) / self.mu[i % self.m]
                 ) * (sum ** (self.mu[i % self.m] - 1))
                 self.probabilities[i, j] = numerator / denominator[j]
-        # self.probabilities = numerator / denominator
         return self.probabilities
 
     def compute_gradient(self, index):

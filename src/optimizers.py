@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import override
+from typing_extensions import override
 
 import numpy as np
 
@@ -18,8 +18,8 @@ class Optimizer(ABC):
         self.N = N
         self.C = C
         self.p = oracle.initialize_prices()
-        self.S = oracle.S
-        self.D = oracle.D
+        self.S = oracle.s
+        self.D = oracle.d
 
     @abstractmethod
     def update(self):
@@ -47,15 +47,20 @@ class SGD(Optimizer):
         Returns:
             p_mean (float): Mean of prices.
         """
+        results = []
         p_mean = self.p
         for t in range(self.N):
-            index = np.random.randint(1, self.S + self.D)
-            self.p = self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(
-                self.p, index
-            ).clip(min=0)
+            index = np.random.randint(0, self.S + self.D)
+            self.p = (self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(
+                index
+            )).clip(min=0)
+            self.oracle.prices = self.p
+            print("prices: ", self.p)
+            print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
+            results.append(self.oracle.compute_cost_func(self.oracle.prices))
+            print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
-        return p_mean / self.N
-
+        return results
 
 class AdaGrad(Optimizer):
     """Adaptive Gradient."""
@@ -68,14 +73,20 @@ class AdaGrad(Optimizer):
             p_mean (float): Mean of prices.
         """
         p_mean = self.p
-        H = np.zeros(self.S + self.D)
+        H = np.zeros(self.oracle.n)
+        results = []
         for _ in range(self.N):
-            index = np.random.randint(1, self.S + self.D)
-            g = self.oracle.compute_gradient(self.p, index)
+            index = np.random.randint(0, self.S + self.D)
+            g = self.oracle.compute_gradient(index)
             H += g**2
             self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
+            self.oracle.prices = self.p
+            print("prices: ", self.p)
+            print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
+            results.append(self.oracle.compute_cost_func(self.oracle.prices))
+            print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
-        return p_mean / self.N
+        return results
 
 
 class Momentum(Optimizer):
@@ -96,15 +107,21 @@ class Momentum(Optimizer):
         Returns:
             p_mean (float): Mean of prices.
         """
+        results = []
         p_mean = self.p
-        v = np.zeros(self.S + self.D)
+        v = np.zeros(self.oracle.n)
         for _ in range(self.N):
-            index = np.random.randint(1, self.S + self.D)
-            g = self.oracle.compute_gradient(self.p, index)
+            index = np.random.randint(0, self.S + self.D)
+            g = self.oracle.compute_gradient(index)
             v = self.gamma * v + self.C * g
             self.p = (self.p - v).clip(min=0)
+            self.oracle.prices = self.p
+            print("prices: ", self.p)
+            print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
+            results.append(self.oracle.compute_cost_func(self.oracle.prices))
+            print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
-        return p_mean / self.N
+        return results
 
 
 class RMSprop(Optimizer):
@@ -125,18 +142,24 @@ class RMSprop(Optimizer):
         Returns:
             p_mean (float): Mean of prices.
         """
+        results = []
         p_mean = self.p
-        H = np.zeros(self.S + self.D)
+        H = np.zeros(self.oracle.n)
         for _ in range(self.N):
-            index = np.random.randint(1, self.S + self.D)
-            g = self.oracle.compute_gradient(self.p, index)
+            index = np.random.randint(0, self.S + self.D)
+            g = self.oracle.compute_gradient(index)
             H = self.decay_rate * H + (1 - self.decay_rate) * g**2
             self.p = (self.p - self.C / np.sqrt(H + 1e-7) * g).clip(min=0)
+            self.oracle.prices = self.p
+            print("prices: ", self.p)
+            print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
+            results.append(self.oracle.compute_cost_func(self.oracle.prices))
+            print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
-        return p_mean / self.N
+        return results
 
 
-class ADAM:
+class ADAM(Optimizer):
     """Adaptive Moment Estimation."""
 
     def __init__(
@@ -147,12 +170,7 @@ class ADAM:
         beta1 (float): Decay rate of the first moment.
         beta2 (float): Decay rate of the second moment.
         """
-        self.oracle = oracle
-        self.N = N
-        self.C = C
-        self.p = oracle.initialize_prices()
-        self.S = oracle.S
-        self.D = oracle.D
+        super().__init__(oracle, N, C)
         self.beta1 = beta1
         self.beta2 = beta2
 
@@ -163,16 +181,22 @@ class ADAM:
         Returns:
             p_mean (float): Mean of prices.
         """
+        results = []
         p_mean = self.p
-        m = np.zeros(self.S + self.D)
-        v = np.zeros(self.S + self.D)
+        m = np.zeros(self.oracle.n)
+        v = np.zeros(self.oracle.n)
         for t in range(self.N):
-            index = np.random.randint(1, self.S + self.D)
-            g = self.oracle.compute_gradient(self.p, index)
+            index = np.random.randint(0, self.S + self.D)
+            g = self.oracle.compute_gradient(index)
             m = self.beta1 * m + (1 - self.beta1) * g
             v = self.beta2 * v + (1 - self.beta2) * g**2
             m_hat = m / (1 - self.beta1 ** (t + 1))
             v_hat = v / (1 - self.beta2 ** (t + 1))
             self.p = (self.p - self.C / np.sqrt(v_hat + 1e-7) * m_hat).clip(min=0)
+            self.oracle.prices = self.p
+            print("prices: ", self.p)
+            print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
+            results.append(self.oracle.compute_cost_func(self.oracle.prices))
+            print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
-        return p_mean / self.N
+        return results
