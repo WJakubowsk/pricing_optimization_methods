@@ -51,9 +51,9 @@ class SGD(Optimizer):
         p_mean = self.p
         for t in range(self.N):
             index = np.random.randint(0, self.S + self.D)
-            self.p = (self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(
-                index
-            )).clip(min=0)
+            self.p = (
+                self.p - (self.C / np.sqrt(t + 1)) * self.oracle.compute_gradient(index)
+            ).clip(min=0)
             self.oracle.prices = self.p
             print("prices: ", self.p)
             print("cost function: ", self.oracle.compute_cost_func(self.oracle.prices))
@@ -61,6 +61,7 @@ class SGD(Optimizer):
             print("gradient: ", self.oracle.compute_gradient(index))
             p_mean += self.p
         return results
+
 
 class AdaGrad(Optimizer):
     """Adaptive Gradient."""
